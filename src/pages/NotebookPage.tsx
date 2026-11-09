@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { AppSettings, DraftSentence, Sense, Source } from '../db/types';
 import {
   addOccurrence,
@@ -19,6 +19,8 @@ import { db } from '../db/db';
 import { formatDateTime } from '../utils/download';
 import { Modal } from '../ui/Modal';
 import { translateSentence } from '../services/dict/lookup';
+import { formatAccuracy, loadDictationIndex, modeLabel, type DictationIndex } from '../db/dictation';
+import { historyMatches } from '../services/dictation/filter';
 
 interface Props {
   settings: AppSettings;
@@ -83,6 +85,12 @@ export function NotebookPage({
   const [confirmDeleteWord, setConfirmDeleteWord] = useState(false);
   const [busy, setBusy] = useState(false);
   const [translating, setTranslating] = useState<string | null>(null);
+  const [dictIndex, setDictIndex] = useState<DictationIndex>({
+    stats: new Map(),
+    history: new Map(),
+    completedSessions: 0,
+  });
+  const [dictFilter, setDictFilter] = useState<'all' | 'never' | 'wrong' | 'manyWrong'>('all');
 
   useEffect(() => {
     (async () => {
@@ -135,12 +143,26 @@ export function NotebookPage({
     })();
   }, [refreshKey]);
 
+  useEffect(() => {
+    (async () => {
+      setDictIndex(await loadDictationIndex());
+    })();
+  }, [refreshKey]);
+
   const displayed = useMemo(() => {
-    if (sourceFilter === 'all') return filtered;
-    const sourceName = sources.find((s) => s.id === sourceFilter)?.name;
-    if (!sourceName) return filtered;
-    return filtered.filter((w) => (sourceMap[w.id] ?? []).includes(sourceName));
-  }, [filtered, sourceFilter, sources, sourceMap]);
+    let list = filtered;
+    if (sourceFilter !== 'all') {
+      const sourceName = sources.find((s) => s.id === sourceFilter)?.name;
+      if (sourceName) list = list.filter((w) => (sourceMap[w.id] ?? []).includes(sourceName));
+    }
+    if (dictFilter !== 'all') {
+      // 与听写创建页共用同一套历史判断标准（这里按两种模式合计统计）
+      list = list.filter((w) =>
+        historyMatches(dictIndex.stats.get(w.id), dictFilter, 2, 'both', 'zh-to-en'),
+      );
+    }
+    return list;
+  }, [filtered, sourceFilter, sources, sourceMap, dictFilter, dictIndex]);
 
   useEffect(() => {
     if (!selectedWordId && displayed.length > 0) {
@@ -294,6 +316,19 @@ export function NotebookPage({
     }
   };
 
+  /** 列表里的听写标签：没有正式记录就显示「未听写」，绝不显示成 0% */
+  const dictTagOf = (wordId: string) => {
+    const stat = dictIndex.stats.get(wordId);
+    if (!stat || stat.total === 0) return { text: '未听写', cls: 'dict-tag-none' };
+    return {
+      text: `听写 ${stat.total} 次 · ${formatAccuracy(stat.correct, stat.total)}`,
+      cls: stat.wrong > 0 ? 'dict-tag-wrong' : 'dict-tag-ok',
+    };
+  };
+
+  const detailStat = detail ? dictIndex.stats.get(detail.word.id) : undefined;
+  const detailHistory = detail ? dictIndex.history.get(detail.word.id) ?? [] : [];
+
   const primary = detail?.links.find((l) => l.isPrimary) ?? detail?.links[0];
   const others = detail?.links.filter((l) => l.id !== primary?.id) ?? [];
 
@@ -319,6 +354,17 @@ export function NotebookPage({
             <select value={sort} onChange={(e) => setSort(e.target.value as 'recent' | 'alpha')}>
               <option value="recent">最新录入</option>
               <option value="alpha">字母顺序</option>
+            </select>
+            <select
+              value={dictFilter}
+              onChange={(e) =>
+                setDictFilter(e.target.value as 'all' | 'never' | 'wrong' | 'manyWrong')
+              }
+            >
+              <option value="all">全部听写状态</option>
+              <option value="never">从未听写</option>
+              <option value="wrong">曾经听写错误</option>
+              <option value="manyWrong">错误 2 次以上</option>
             </select>
           </div>
           <div className="list-count">
@@ -355,6 +401,7 @@ export function NotebookPage({
                     {name}
                   </span>
                 ))}
+                <span className={`tag dict-tag ${dictTagOf(w.id).cls}`}>{dictTagOf(w.id).text}</span>
               </div>
             </button>
           ))}
@@ -749,6 +796,57 @@ export function NotebookPage({
                 </button>
               </div>
             </div>
+
+            <div className="section-head">
+              <h3>听写记录</h3>
+              {detailStat && detailStat.total > 0 ? (
+                <span className="muted small">
+                  综合 {detailStat.total} 次 · {formatAccuracy(detailStat.correct, detailStat.total)}
+                </span>
+              ) : null}
+            </div>
+            {!detailStat || detailStat.total === 0 ? (
+              <p className="muted small dict-none">未听写</p>
+            ) : (
+              <>
+                <div className="dict-mode-stats">
+                  {(['zh-to-en', 'en-to-zh'] as const).map((m) => {
+                    const st = detailStat.byMode[m];
+                    return (
+                      <div key={m} className="dict-mode-stat">
+                        <strong>{modeLabel(m)}</strong>
+                        <span>
+                          {st.total === 0
+                            ? '还没有这个模式的记录'
+                            : `听写 ${st.total} 次，正确 ${st.correct} 次，错误 ${st.wrong} 次，正确率 ${formatAccuracy(st.correct, st.total)}`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <div className="dict-mode-stat">
+                    <strong>综合</strong>
+                    <span>
+                      共听写 {detailStat.total} 次，正确 {detailStat.correct} 次，错误{' '}
+                      {detailStat.wrong} 次
+                    </span>
+                  </div>
+                </div>
+                <ul className="dict-history-list">
+                  {detailHistory.slice(0, 12).map((h, index) => (
+                    <li key={`${h.sessionId}-${index}`}>
+                      <span className="tag">{modeLabel(h.mode)}</span>
+                      <span className={h.result === 'correct' ? 'dict-ok' : 'dict-bad'}>
+                        {h.result === 'correct' ? '正确' : '错误'}
+                      </span>
+                      <span className="muted small">{formatDateTime(h.at)}</span>
+                    </li>
+                  ))}
+                </ul>
+                {detailHistory.length > 12 ? (
+                  <p className="muted small">仅显示最近 12 次，完整记录可在「设置 → 导出 Excel」中查看。</p>
+                ) : null}
+              </>
+            )}
 
             <div className="section-head">
               <h3>遇词记录</h3>

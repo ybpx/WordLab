@@ -1,6 +1,8 @@
 import Dexie, { type Table } from 'dexie';
 import type {
   AppSettings,
+  DictationItem,
+  DictationSession,
   MetaRow,
   Occurrence,
   Sentence,
@@ -12,8 +14,11 @@ import type {
 /**
  * IndexedDB 数据库（Dexie）
  *
- * 版本迁移说明：以后新增字段时，追加 db.version(2).stores({...}).upgrade(...)，
+ * 版本迁移说明：以后新增字段时，追加 db.version(n).stores({...}).upgrade(...)，
  * 不要删除旧版本定义，保证已有数据可以平滑升级。
+ *
+ * V1.2：新增听写会话（dictationSessions）与单词听写记录（dictationItems）。
+ * 只新增表与索引，不改动任何已有表结构，V1.0 / V1.1 的词库原样保留。
  */
 export class WordLabDB extends Dexie {
   words!: Table<Word, string>;
@@ -23,6 +28,8 @@ export class WordLabDB extends Dexie {
   occurrences!: Table<Occurrence, string>;
   settings!: Table<AppSettings, string>;
   meta!: Table<MetaRow, string>;
+  dictationSessions!: Table<DictationSession, string>;
+  dictationItems!: Table<DictationItem, string>;
 
   constructor() {
     super('wordlab');
@@ -34,6 +41,10 @@ export class WordLabDB extends Dexie {
       occurrences: 'id, wordId, sourceId, encounteredAt',
       settings: 'key',
       meta: 'key',
+    });
+    this.version(2).stores({
+      dictationSessions: 'id, mode, status, createdAt, completedAt',
+      dictationItems: 'id, sessionId, wordId, [sessionId+wordId], result',
     });
   }
 }

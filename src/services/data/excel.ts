@@ -1,5 +1,6 @@
 const loadXLSX = () => import('xlsx');
 import { db } from '../../db/db';
+import { clampWriteSeconds } from '../../db/dictation';
 import {
   collectBackup,
   createWord,
@@ -24,6 +25,21 @@ export async function exportExcel(): Promise<void> {
   const { words, sentences, links, sources, occurrences } = backup.data;
   const sourceName = new Map(sources.map((s) => [s.id, s.name]));
   const sentenceById = new Map(sentences.map((s) => [s.id, s]));
+  const dictSessions = backup.data.dictationSessions ?? [];
+  const dictItems = backup.data.dictationItems ?? [];
+  const completedSessions = new Map(
+    dictSessions.filter((s) => s.status === 'completed').map((s) => [s.id, s] as const),
+  );
+  const dictStats = new Map<string, { total: number; correct: number; wrong: number }>();
+  for (const item of dictItems) {
+    if (!completedSessions.has(item.sessionId)) continue;
+    if (item.result !== 'correct' && item.result !== 'wrong') continue;
+    const entry = dictStats.get(item.wordId) ?? { total: 0, correct: 0, wrong: 0 };
+    entry.total += 1;
+    if (item.result === 'correct') entry.correct += 1;
+    else entry.wrong += 1;
+    dictStats.set(item.wordId, entry);
+  }
 
   const mainRows = words
     .slice()
@@ -33,6 +49,7 @@ export async function exportExcel(): Promise<void> {
       const primary = wLinks.find((l) => l.isPrimary) ?? wLinks[0];
       const sentence = primary ? sentenceById.get(primary.sentenceId) : undefined;
       const occ = occurrences.filter((o) => o.wordId === w.id);
+      const ds = dictStats.get(w.id);
       return {
         单词: w.word,
         原形: w.lemma ?? '',
@@ -45,6 +62,10 @@ export async function exportExcel(): Promise<void> {
         例句翻译: sentence?.chinese ?? '',
         例句数: wLinks.length,
         遇词次数: occ.length,
+        听写次数: ds?.total ?? 0,
+        听写正确: ds?.correct ?? 0,
+        听写错误: ds?.wrong ?? 0,
+        听写正确率: ds && ds.total > 0 ? `${Math.round((ds.correct / ds.total) * 100)}%` : '',
         录入时间: new Date(w.createdAt).toLocaleString('zh-CN'),
       };
     });
@@ -87,6 +108,48 @@ export async function exportExcel(): Promise<void> {
     备注: o.note ?? '',
   }));
 
+  const wordById = new Map(words.map((w) => [w.id, w]));
+  const sessionRows = dictSessions
+    .slice()
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map((s) => ({
+      会话编号: s.id,
+      听写模式: s.mode === 'zh-to-en' ? '听中文，写英文' : '听英文，写中文',
+      状态: s.status === 'completed' ? '已完成' : s.status === 'abandoned' ? '已放弃' : '未完成',
+      开始时间: new Date(s.createdAt).toLocaleString('zh-CN'),
+      完成时间: s.completedAt ? new Date(s.completedAt).toLocaleString('zh-CN') : '',
+      朗读次数: s.repetitionCount,
+      书写间隔秒: clampWriteSeconds(s.writeSeconds),
+      语速: s.playbackSpeed,
+      单词数: s.total,
+      正确数: s.correctCount,
+      错误数: s.wrongCount,
+      正确率:
+        s.status === 'completed' && s.total > 0
+          ? `${Math.round((s.correctCount / s.total) * 100)}%`
+          : '',
+    }));
+
+  const sessionById = new Map(dictSessions.map((s) => [s.id, s]));
+  const dictItemRows = dictItems
+    .slice()
+    .sort((a, b) => a.sessionId.localeCompare(b.sessionId) || a.order - b.order)
+    .map((item) => {
+      const s = sessionById.get(item.sessionId);
+      return {
+        会话编号: item.sessionId,
+        听写模式: s ? (s.mode === 'zh-to-en' ? '听中文，写英文' : '听英文，写中文') : '',
+        完成时间: s?.completedAt ? new Date(s.completedAt).toLocaleString('zh-CN') : '',
+        序号: item.order,
+        英文单词: item.answerSnapshot?.en ?? wordById.get(item.wordId)?.word ?? '',
+        中文释义: item.answerSnapshot?.zh ?? '',
+        本题朗读内容: item.promptSnapshot,
+        结果:
+          item.result === 'correct' ? '正确' : item.result === 'wrong' ? '错误' : '未批改',
+        批改时间: item.gradedAt ? new Date(item.gradedAt).toLocaleString('zh-CN') : '',
+      };
+    });
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(mainRows), '单词总表');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(senseRows), '释义');
@@ -98,6 +161,8 @@ export async function exportExcel(): Promise<void> {
     '来源',
   );
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(occurrenceRows), '遇词记录');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sessionRows), '听写会话');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dictItemRows), '听写明细');
 
   const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
   downloadBlob(

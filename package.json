@@ -1,7 +1,7 @@
 {
   "name": "wordlab",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
@@ -16,7 +16,8 @@
     "build:dict": "node scripts/build-dict.mjs",
     "test:version": "node scripts/test-node-version.mjs",
     "test:e2e": "node scripts/e2e.mjs",
-    "test:e2e:v11": "node scripts/e2e-v11.mjs"
+    "test:e2e:v11": "node scripts/e2e-v11.mjs",
+    "test:e2e:v12": "node scripts/e2e-v12.mjs"
   },
   "dependencies": {
     "dexie": "^4.0.11",

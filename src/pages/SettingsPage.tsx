@@ -898,7 +898,7 @@ export function SettingsPage({ settings, onSettingsChange, sources, onDataChange
           </li>
         </ul>
         <p className="muted small">
-          版本 1.1.0 · 数据保存在本机浏览器 IndexedDB，并自动同步到电脑上的 WordLab 数据文件；
+          版本 1.2.0 · 数据保存在本机浏览器 IndexedDB，并自动同步到电脑上的 WordLab 数据文件；
           换电脑或重装系统前，请先导出一份 JSON 完整备份。
         </p>
       </section>
@@ -949,7 +949,7 @@ export function SettingsPage({ settings, onSettingsChange, sources, onDataChange
       >
         <p>
           {restoreMode === 'replace'
-            ? '替换模式会先清空当前词库，再写入备份内容。这个操作不可撤销。'
+            ? '替换模式会先清空当前词库和听写历史，再写入备份内容。这个操作不可撤销。'
             : '合并模式会保留现有数据，按单词拼写合并释义、来源和例句。'}
         </p>
       </Modal>
@@ -970,7 +970,7 @@ export function SettingsPage({ settings, onSettingsChange, sources, onDataChange
                 setClearConfirm(false);
                 onDataChanged();
                 refreshStats();
-                onToast('已清空全部单词数据', 'info');
+                onToast('已清空全部数据（含听写历史）', 'info');
               }}
             >
               确认清空
@@ -978,7 +978,7 @@ export function SettingsPage({ settings, onSettingsChange, sources, onDataChange
           </>
         }
       >
-        <p>将删除全部单词、例句、来源和遇词记录，不可撤销。建议先导出备份。</p>
+        <p>将删除全部单词、例句、来源、遇词记录和听写历史，不可撤销。建议先导出备份。</p>
       </Modal>
     </div>
   );

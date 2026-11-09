@@ -41,8 +41,8 @@ const PREV_FILE = path.join(DATA_DIR, 'wordlab-data.prev.json');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const LOG_DIR = path.join(DATA_DIR, 'logs');
 
-const SCHEMA_VERSION = 2;
-const APP_VERSION = '1.1.0';
+const SCHEMA_VERSION = 3;
+const APP_VERSION = '1.2.0';
 const MAX_BACKUPS = 10;
 const MAX_BODY = 64 * 1024 * 1024;
 const ALLOWED_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`, `[::1]:${PORT}`]);
@@ -104,6 +104,8 @@ function countOf(payload) {
     links: Array.isArray(d.links) ? d.links.length : 0,
     sources: Array.isArray(d.sources) ? d.sources.length : 0,
     occurrences: Array.isArray(d.occurrences) ? d.occurrences.length : 0,
+    dictationSessions: Array.isArray(d.dictationSessions) ? d.dictationSessions.length : 0,
+    dictationItems: Array.isArray(d.dictationItems) ? d.dictationItems.length : 0,
   };
 }
 
@@ -157,6 +159,22 @@ function validatePayload(p) {
   for (const o of d.occurrences) {
     if (!o || typeof o.wordId !== 'string' || typeof o.sourceId !== 'string') {
       return '数据格式错误：遇词记录结构异常（缺少 wordId 或 sourceId）';
+    }
+  }
+  // V1.2 听写数据：旧版快照可以没有这两项，出现时必须结构可用
+  for (const key of ['dictationSessions', 'dictationItems']) {
+    if (d[key] !== undefined && !Array.isArray(d[key])) {
+      return `数据格式错误：data.${key} 不是数组`;
+    }
+  }
+  for (const s of d.dictationSessions ?? []) {
+    if (!s || typeof s.id !== 'string' || typeof s.mode !== 'string') {
+      return '数据格式错误：听写会话结构异常（缺少 id 或 mode）';
+    }
+  }
+  for (const item of d.dictationItems ?? []) {
+    if (!item || typeof item.sessionId !== 'string' || typeof item.wordId !== 'string') {
+      return '数据格式错误：听写明细结构异常（缺少 sessionId 或 wordId）';
     }
   }
   return null;
@@ -420,6 +438,8 @@ async function handleApi(req, res, pathname) {
             links: body.data.links,
             sources: body.data.sources,
             occurrences: body.data.occurrences,
+            dictationSessions: body.data.dictationSessions ?? [],
+            dictationItems: body.data.dictationItems ?? [],
           },
         };
         const content = JSON.stringify(snapshot, null, 2);

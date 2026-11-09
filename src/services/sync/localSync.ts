@@ -1,7 +1,15 @@
 import { useSyncExternalStore } from 'react';
 import { db } from '../../db/db';
 import { restoreBackup, type BackupPayload } from '../../db/repo';
-import type { Occurrence, Sentence, Source, Word, WordSentenceLink } from '../../db/types';
+import type {
+  DictationItem,
+  DictationSession,
+  Occurrence,
+  Sentence,
+  Source,
+  Word,
+  WordSentenceLink,
+} from '../../db/types';
 import { registerDirtyHandler } from './dirty';
 
 /**
@@ -30,6 +38,10 @@ export interface Counts {
   links: number;
   sources: number;
   occurrences: number;
+  /** V1.2 听写会话数 */
+  dictationSessions?: number;
+  /** V1.2 听写明细数 */
+  dictationItems?: number;
 }
 
 export interface SyncInfo {
@@ -47,7 +59,15 @@ export interface SyncInfo {
   retries: number;
 }
 
-const EMPTY_COUNTS: Counts = { words: 0, sentences: 0, links: 0, sources: 0, occurrences: 0 };
+const EMPTY_COUNTS: Counts = {
+  words: 0,
+  sentences: 0,
+  links: 0,
+  sources: 0,
+  occurrences: 0,
+  dictationSessions: 0,
+  dictationItems: 0,
+};
 const DEBOUNCE_MS = 700;
 const MAX_RETRY = 3;
 
@@ -102,23 +122,44 @@ export function useSyncInfo(): SyncInfo {
 /* ------------------------------------------------------------------ */
 
 async function browserCounts(): Promise<Counts> {
-  const [words, sentences, links, sources, occurrences] = await Promise.all([
-    db.words.count(),
-    db.sentences.count(),
-    db.links.count(),
-    db.sources.count(),
-    db.occurrences.count(),
-  ]);
-  return { words, sentences, links, sources, occurrences };
+  const [words, sentences, links, sources, occurrences, dictationSessions, dictationItems] =
+    await Promise.all([
+      db.words.count(),
+      db.sentences.count(),
+      db.links.count(),
+      db.sources.count(),
+      db.occurrences.count(),
+      db.dictationSessions.count(),
+      db.dictationItems.count(),
+    ]);
+  return {
+    words,
+    sentences,
+    links,
+    sources,
+    occurrences,
+    dictationSessions,
+    dictationItems,
+  };
 }
 
 async function buildSnapshot() {
-  const [words, sentences, links, sources, occurrences] = await Promise.all([
+  const [
+    words,
+    sentences,
+    links,
+    sources,
+    occurrences,
+    dictationSessions,
+    dictationItems,
+  ] = await Promise.all([
     db.words.toArray(),
     db.sentences.toArray(),
     db.links.toArray(),
     db.sources.toArray(),
     db.occurrences.toArray(),
+    db.dictationSessions.toArray(),
+    db.dictationItems.toArray(),
   ]);
   const counts: Counts = {
     words: words.length,
@@ -126,16 +167,30 @@ async function buildSnapshot() {
     links: links.length,
     sources: sources.length,
     occurrences: occurrences.length,
+    dictationSessions: dictationSessions.length,
+    dictationItems: dictationItems.length,
   };
   const maxUpdated = words.reduce((max: number, w: Word) => Math.max(max, w.updatedAt || 0), 0);
-  const signature = `${counts.words}/${counts.sentences}/${counts.links}/${counts.sources}/${counts.occurrences}/${maxUpdated}`;
+  const maxDictation = dictationSessions.reduce(
+    (max: number, s: DictationSession) => Math.max(max, s.completedAt ?? s.createdAt ?? 0),
+    0,
+  );
+  const signature = `${counts.words}/${counts.sentences}/${counts.links}/${counts.sources}/${counts.occurrences}/${counts.dictationSessions}/${counts.dictationItems}/${maxUpdated}/${maxDictation}`;
   return {
     payload: {
       format: 'wordlab-local-data',
-      schemaVersion: 2,
+      schemaVersion: 3,
       updatedAt: Date.now(),
       counts,
-      data: { words, sentences, links, sources, occurrences },
+      data: {
+        words,
+        sentences,
+        links,
+        sources,
+        occurrences,
+        dictationSessions,
+        dictationItems,
+      },
     },
     counts,
     signature,
@@ -324,6 +379,8 @@ export interface LocalSnapshot {
       links: WordSentenceLink[];
       sources: Source[];
       occurrences: Occurrence[];
+      dictationSessions?: DictationSession[];
+      dictationItems?: DictationItem[];
     };
   } | null;
 }
@@ -339,13 +396,17 @@ export async function restoreFromLocalFile(mode: 'replace' | 'merge'): Promise<{
   merged: number;
   added: number;
   sentences: number;
+  dictationSessions: number;
+  dictationItems: number;
 }> {
   const snap = await readLocalSnapshot();
   if (!snap.exists || !snap.payload) throw new Error('电脑上还没有可恢复的数据文件');
   const d = snap.payload.data;
+  const dictationSessions = d.dictationSessions ?? [];
+  const dictationItems = d.dictationItems ?? [];
   const payload: BackupPayload = {
     format: 'wordlab-backup',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     counts: {
       words: d.words.length,
@@ -353,6 +414,8 @@ export async function restoreFromLocalFile(mode: 'replace' | 'merge'): Promise<{
       links: d.links.length,
       sources: d.sources.length,
       occurrences: d.occurrences.length,
+      dictationSessions: dictationSessions.length,
+      dictationItems: dictationItems.length,
     },
     data: {
       words: d.words,
@@ -360,6 +423,8 @@ export async function restoreFromLocalFile(mode: 'replace' | 'merge'): Promise<{
       links: d.links,
       sources: d.sources,
       occurrences: d.occurrences,
+      dictationSessions,
+      dictationItems,
       settings: [],
     },
   };

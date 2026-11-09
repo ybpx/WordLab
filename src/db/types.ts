@@ -99,6 +99,110 @@ export interface MetaRow {
   value: unknown;
 }
 
+/* ------------------------------------------------------------------ */
+/* V1.2 听写练习                                                        */
+/* ------------------------------------------------------------------ */
+
+/** 听写模式：听中文写英文 / 听英文写中文 */
+export type DictationMode = 'zh-to-en' | 'en-to-zh';
+
+/** 会话状态：进行中 / 待批改 / 已完成 / 已放弃 */
+export type DictationStatus = 'in-progress' | 'grading' | 'completed' | 'abandoned';
+
+export type DictationResult = 'correct' | 'wrong' | 'ungraded';
+
+/** 日期筛选 */
+export type DictationDateRange = 'all' | 'today' | '7d' | '30d' | 'custom';
+
+/** 听写历史筛选 */
+export type DictationHistoryFilter = 'all' | 'never' | 'wrong' | 'manyWrong';
+
+/**
+ * 创建听写时的筛选快照。
+ * 存进会话里，保证历史记录能还原"当时是用什么条件抽的题"。
+ */
+export interface DictationFilters {
+  /** null 表示全部来源；否则为选中的来源 id 列表（同一维度取并集） */
+  sourceIds: string[] | null;
+  dateRange: DictationDateRange;
+  /** 自定义日期范围（本地日期，YYYY-MM-DD，含首尾） */
+  customStart?: string;
+  customEnd?: string;
+  history: DictationHistoryFilter;
+  /** 「错误次数较多」的阈值：2 / 3 / 5 */
+  manyWrongMin: number;
+  /** 历史统计范围：当前模式 / 两种模式合计 */
+  historyScope: 'mode' | 'both';
+  /** 数量：全部符合条件 / 随机抽取指定数量 */
+  countMode: 'all' | 'fixed';
+  count: number;
+}
+
+/** 听写会话 */
+export interface DictationSession {
+  id: string;
+  mode: DictationMode;
+  createdAt: number;
+  completedAt: number | null;
+  status: DictationStatus;
+  filtersSnapshot: DictationFilters;
+  /** 每个单词朗读几遍：1 / 2 / 3 */
+  repetitionCount: number;
+  /** 每个单词的书写倒计时秒数：5–10，默认 10 */
+  writeSeconds: number;
+  /** 本次使用的语速 */
+  playbackSpeed: number;
+  /** 本次出题顺序（单词 id 数组，顺序即听写顺序） */
+  selectedWordIds: string[];
+  /** 学生为个别单词自定义的中文朗读提示（wordId → 文本） */
+  promptOverrides: Record<string, string>;
+  /** 计划数量（可能因跳过而少于实际完成数） */
+  total: number;
+  correctCount: number;
+  wrongCount: number;
+  /** 断点续听：进行到第几个单词（0 起） */
+  progressIndex: number;
+  /** 朗读失败被跳过的单词（不计入正式成绩） */
+  skippedWordIds: string[];
+  /** 放弃时间 */
+  abandonedAt?: number | null;
+}
+
+/** 单个单词的听写记录 */
+export interface DictationItem {
+  id: string;
+  sessionId: string;
+  wordId: string;
+  /** 本次听写顺序，1 起 */
+  order: number;
+  /** 本题实际朗读的内容（中文提示或英文单词） */
+  promptSnapshot: string;
+  /** 提交时的参考答案快照（单词日后被改也不影响历史） */
+  answerSnapshot: DictationAnswerSnapshot;
+  result: DictationResult;
+  gradedAt: number | null;
+}
+
+export interface DictationAnswerSnapshot {
+  /** 英文单词 */
+  en: string;
+  /** 主要中文释义（合并展示用） */
+  zh: string;
+  /** 词性与释义明细 */
+  senses: Array<{ pos: string; zh: string; posLabel?: string }>;
+}
+
+/** 单个单词的听写历史统计 */
+export interface DictationWordStats {
+  total: number;
+  correct: number;
+  wrong: number;
+  /** 最近一次结果 */
+  lastResult: DictationResult | null;
+  lastAt: number | null;
+  byMode: Record<DictationMode, { total: number; correct: number; wrong: number }>;
+}
+
 /** 查词结果（尚未入库的草稿） */
 export interface DraftSentence {
   english: string;

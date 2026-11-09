@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getSettings, initDatabase, requestPersistentStorage } from './db/db';
 import { listSources } from './db/repo';
 import type { AppSettings, Source } from './db/types';
@@ -7,15 +7,17 @@ import { toast } from './ui/toast';
 import { RecordPage } from './pages/RecordPage';
 import { NotebookPage } from './pages/NotebookPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { DictationPage } from './pages/DictationPage';
 import { THEME_OPTIONS, setThemeMode, useThemeMode } from './theme';
 import { initRate } from './state/prefs';
 import { initLocalSync, useSyncInfo } from './services/sync/localSync';
 
-type Route = 'record' | 'notebook' | 'settings';
+type Route = 'record' | 'notebook' | 'dictation' | 'settings';
 
 function parseHash(): Route {
   const hash = window.location.hash.replace(/^#\/?/, '');
   if (hash.startsWith('notebook')) return 'notebook';
+  if (hash.startsWith('dictation')) return 'dictation';
   if (hash.startsWith('settings')) return 'settings';
   return 'record';
 }
@@ -134,6 +136,12 @@ export default function App() {
               我的单词本
             </button>
             <button
+              className={`nav-item ${route === 'dictation' ? 'active' : ''}`}
+              onClick={() => navigate('dictation')}
+            >
+              听写练习
+            </button>
+            <button
               className={`nav-item ${route === 'settings' ? 'active' : ''}`}
               onClick={() => navigate('settings')}
             >
@@ -198,6 +206,7 @@ export default function App() {
             onGoRecord={() => navigate('record')}
           />
         )}
+        {route === 'dictation' && <DictationPage />}
         {route === 'settings' && (
           <SettingsPage
             settings={settings}

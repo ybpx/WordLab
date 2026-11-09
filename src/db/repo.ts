@@ -2,6 +2,8 @@ import { db } from './db';
 import { markDirty } from '../services/sync/dirty';
 import type {
   AppSettings,
+  DictationItem,
+  DictationSession,
   DraftSentence,
   Occurrence,
   Sentence,
@@ -305,29 +307,44 @@ export interface BackupPayload {
   format: 'wordlab-backup';
   version: number;
   exportedAt: string;
-  counts: { words: number; sentences: number; links: number; sources: number; occurrences: number };
+  counts: {
+    words: number;
+    sentences: number;
+    links: number;
+    sources: number;
+    occurrences: number;
+    /** V1.2 起才有 */
+    dictationSessions?: number;
+    dictationItems?: number;
+  };
   data: {
     words: Word[];
     sentences: Sentence[];
     links: WordSentenceLink[];
     sources: Source[];
     occurrences: Occurrence[];
+    /** V1.2 起才有；旧备份没有这两个字段时按空处理 */
+    dictationSessions?: DictationSession[];
+    dictationItems?: DictationItem[];
     settings: AppSettings[];
   };
 }
 
 export async function collectBackup(): Promise<BackupPayload> {
-  const [words, sentences, links, sources, occurrences, settings] = await Promise.all([
-    db.words.toArray(),
-    db.sentences.toArray(),
-    db.links.toArray(),
-    db.sources.toArray(),
-    db.occurrences.toArray(),
-    db.settings.toArray(),
-  ]);
+  const [words, sentences, links, sources, occurrences, settings, dictationSessions, dictationItems] =
+    await Promise.all([
+      db.words.toArray(),
+      db.sentences.toArray(),
+      db.links.toArray(),
+      db.sources.toArray(),
+      db.occurrences.toArray(),
+      db.settings.toArray(),
+      db.dictationSessions.toArray(),
+      db.dictationItems.toArray(),
+    ]);
   return {
     format: 'wordlab-backup',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     counts: {
       words: words.length,
@@ -335,8 +352,19 @@ export async function collectBackup(): Promise<BackupPayload> {
       links: links.length,
       sources: sources.length,
       occurrences: occurrences.length,
+      dictationSessions: dictationSessions.length,
+      dictationItems: dictationItems.length,
     },
-    data: { words, sentences, links, sources, occurrences, settings },
+    data: {
+      words,
+      sentences,
+      links,
+      sources,
+      occurrences,
+      dictationSessions,
+      dictationItems,
+      settings,
+    },
   };
 }
 
@@ -366,15 +394,35 @@ export function validateBackup(raw: unknown): { ok: boolean; error?: string; pay
 export async function restoreBackup(
   payload: BackupPayload,
   mode: 'replace' | 'merge',
-): Promise<{ words: number; merged: number; added: number; sentences: number }> {
+): Promise<{
+  words: number;
+  merged: number;
+  added: number;
+  sentences: number;
+  dictationSessions: number;
+  dictationItems: number;
+}> {
   const d = payload.data;
   let merged = 0;
   let added = 0;
   let sentenceCount = 0;
+  let sessionCount = 0;
+  let itemCount = 0;
+  // 旧备份（V1.1 及更早）没有听写数据：replace 时不要顺手清空已有听写记录
+  const hasDictation = Array.isArray(d.dictationSessions) || Array.isArray(d.dictationItems);
 
   await db.transaction(
     'rw',
-    [db.words, db.sentences, db.links, db.sources, db.occurrences, db.settings],
+    [
+      db.words,
+      db.sentences,
+      db.links,
+      db.sources,
+      db.occurrences,
+      db.settings,
+      db.dictationSessions,
+      db.dictationItems,
+    ],
     async () => {
       if (mode === 'replace') {
         await Promise.all([
@@ -384,6 +432,9 @@ export async function restoreBackup(
           db.sources.clear(),
           db.occurrences.clear(),
         ]);
+        if (hasDictation) {
+          await Promise.all([db.dictationSessions.clear(), db.dictationItems.clear()]);
+        }
       }
 
       // 来源：按名称合并
@@ -488,17 +539,71 @@ export async function restoreBackup(
         await db.settings.clear();
         for (const s of d.settings) await db.settings.put(s);
       }
+
+      // 听写记录：按会话 id 去重，保证「同一份备份导入多次不会重复计数」
+      const existingSessionIds = new Set(
+        (await db.dictationSessions.toArray()).map((s) => s.id),
+      );
+      const keptSessionIds = new Set<string>();
+      for (const session of d.dictationSessions ?? []) {
+        if (!session?.id) continue;
+        if (existingSessionIds.has(session.id)) {
+          keptSessionIds.add(session.id);
+          continue;
+        }
+        await db.dictationSessions.put({
+          ...session,
+          selectedWordIds: (session.selectedWordIds ?? []).map(
+            (id) => wordIdMap.get(id) ?? id,
+          ),
+        });
+        existingSessionIds.add(session.id);
+        keptSessionIds.add(session.id);
+        sessionCount += 1;
+      }
+
+      const existingItemIds = new Set((await db.dictationItems.toArray()).map((i) => i.id));
+      const seenPairs = new Set<string>();
+      for (const item of d.dictationItems ?? []) {
+        if (!item?.id || !item.sessionId) continue;
+        if (!keptSessionIds.has(item.sessionId)) continue;
+        if (existingItemIds.has(item.id)) continue;
+        const pairKey = `${item.sessionId}::${item.wordId}`;
+        if (seenPairs.has(pairKey)) continue;
+        seenPairs.add(pairKey);
+        await db.dictationItems.put({
+          ...item,
+          wordId: wordIdMap.get(item.wordId) ?? item.wordId,
+        });
+        existingItemIds.add(item.id);
+        itemCount += 1;
+      }
     },
   );
 
   markDirty();
-  return { words: d.words?.length ?? 0, merged, added, sentences: sentenceCount };
+  return {
+    words: d.words?.length ?? 0,
+    merged,
+    added,
+    sentences: sentenceCount,
+    dictationSessions: sessionCount,
+    dictationItems: itemCount,
+  };
 }
 
 export async function clearAllData(): Promise<void> {
   await db.transaction(
     'rw',
-    [db.words, db.sentences, db.links, db.sources, db.occurrences],
+    [
+      db.words,
+      db.sentences,
+      db.links,
+      db.sources,
+      db.occurrences,
+      db.dictationSessions,
+      db.dictationItems,
+    ],
     async () => {
       await Promise.all([
         db.words.clear(),
@@ -506,6 +611,8 @@ export async function clearAllData(): Promise<void> {
         db.links.clear(),
         db.sources.clear(),
         db.occurrences.clear(),
+        db.dictationSessions.clear(),
+        db.dictationItems.clear(),
       ]);
     },
   );

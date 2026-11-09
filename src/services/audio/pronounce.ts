@@ -1,4 +1,4 @@
-import { cancelSpeech, findVoice, speak } from './speech';
+import { cancelSpeech, findVoice, speak, speakTextToEnd } from './speech';
 
 export type Accent = 'uk' | 'us';
 export type AudioEngine = 'auto' | 'dict' | 'speech';
@@ -18,6 +18,13 @@ export interface PlayOptions {
 
 let audioEl: HTMLAudioElement | null = null;
 let playToken = 0;
+const stopWaiters = new Set<() => void>();
+
+function notifyStop(): void {
+  const list = Array.from(stopWaiters);
+  stopWaiters.clear();
+  for (const fn of list) fn();
+}
 
 function getAudio(): HTMLAudioElement {
   if (!audioEl) {
@@ -36,6 +43,7 @@ export function stopPronunciation(): void {
     audioEl.load();
   }
   cancelSpeech();
+  notifyStop();
 }
 
 /** 词典音频地址：有道词典公开发音接口，type=1 英音，type=2 美音（在线播放，不下载、不再分发） */
@@ -157,4 +165,108 @@ export async function playSentence(
   await speak(content, accent, { rate });
   if (token !== playToken) throw new Error('cancelled');
   return { engine: 'speech', accent, detail: `浏览器语音（${voice?.name ?? (accent === 'uk' ? 'en-GB' : 'en-US')}）` };
+}
+
+/* ------------------------------------------------------------------ */
+/* 听写用：播放到「真正结束」再返回（V1.2）                            */
+/* ------------------------------------------------------------------ */
+
+type UrlPlayResult = 'ended' | 'failed' | 'stopped';
+
+/**
+ * 播放一段音频并等到播放结束。
+ * 与 tryPlayUrl 的区别：tryPlayUrl 只要开始播放就返回，这里必须等到 ended，
+ * 因为听写要用「朗读结束」的时刻开始 10 秒书写倒计时。
+ */
+function playUrlToEnd(url: string, rate: number): Promise<UrlPlayResult> {
+  return new Promise<UrlPlayResult>((resolve) => {
+    const audio = getAudio();
+    let settled = false;
+    let started = false;
+    let watchdog: ReturnType<typeof setTimeout> | null = null;
+    const cleanup = () => {
+      audio.removeEventListener('playing', onPlaying);
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('error', onError);
+      if (watchdog) clearTimeout(watchdog);
+      stopWaiters.delete(onStopped);
+    };
+    const finish = (result: UrlPlayResult) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (result !== 'ended') {
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+      }
+      resolve(result);
+    };
+    const armWatchdog = () => {
+      if (watchdog) clearTimeout(watchdog);
+      const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 6;
+      const ms = Math.max(3000, (duration * 1000) / (rate > 0 ? rate : 1) + 2500);
+      watchdog = setTimeout(() => finish(started ? 'ended' : 'failed'), ms);
+    };
+    const onPlaying = () => {
+      started = true;
+      applyRate(audio, rate);
+      armWatchdog();
+    };
+    const onEnded = () => finish('ended');
+    const onError = () => finish('failed');
+    const onStopped = () => finish('stopped');
+
+    audio.addEventListener('playing', onPlaying);
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('error', onError);
+    stopWaiters.add(onStopped);
+
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    audio.src = url;
+    applyRate(audio, rate);
+    audio.play().catch(() => finish('failed'));
+    // 长时间没有开始播放（网络卡住）也要退出，交给上层回退语音合成
+    setTimeout(() => {
+      if (!started) finish('failed');
+    }, 6000);
+  });
+}
+
+/**
+ * 听写朗读一个单词（英文），等到朗读真正结束。
+ * 英文走原有方案：优先词典音频（英美口音按用户偏好），失败回退浏览器语音。
+ */
+export async function playWordToEnd(
+  word: string,
+  accent: Accent,
+  { engine = 'auto', rate = 1, audioUrls }: PlayOptions = {},
+): Promise<PlayOutcome> {
+  const text = word.trim();
+  if (!text) throw new Error('没有可播放的单词');
+  stopPronunciation();
+  const token = ++playToken;
+  const accentName = accent === 'uk' ? '英音' : '美音';
+
+  if (engine !== 'speech') {
+    const candidates = [youdaoAudioUrl(text, accent)];
+    const extra = accent === 'uk' ? audioUrls?.uk : audioUrls?.us;
+    if (extra) candidates.push(extra);
+    for (const url of candidates) {
+      const result = await playUrlToEnd(url, rate);
+      if (token !== playToken) throw new Error('cancelled');
+      if (result === 'ended') return { engine: 'dict', accent, detail: `词典${accentName}` };
+      if (result === 'stopped') throw new Error('cancelled');
+    }
+    if (engine === 'dict') throw new Error(`词典${accentName}音频不可用`);
+  }
+
+  const voice = await findVoice(accent);
+  if (token !== playToken) throw new Error('cancelled');
+  if (!voice) throw new Error('当前电脑没有可用的英文语音');
+  await speakTextToEnd(text, voice, { rate });
+  if (token !== playToken) throw new Error('cancelled');
+  return { engine: 'speech', accent, detail: `浏览器语音（${voice.name}）` };
 }

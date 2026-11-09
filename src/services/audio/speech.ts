@@ -69,6 +69,107 @@ export function cancelSpeech(): void {
   if (speechSupported()) window.speechSynthesis.cancel();
 }
 
+/* ------------------------------------------------------------------ */
+/* 中文语音（V1.2 听写「听中文，写英文」）                              */
+/* ------------------------------------------------------------------ */
+
+function isChineseVoice(voice: SpeechSynthesisVoice): boolean {
+  return voice.lang.toLowerCase().replace('_', '-').startsWith('zh');
+}
+
+/** 列出本机可用的中文语音，优先 zh-CN、优先本地语音 */
+export async function listChineseVoices(): Promise<SpeechSynthesisVoice[]> {
+  const voices = await loadVoices();
+  const zh = voices.filter(isChineseVoice);
+  const rank = (v: SpeechSynthesisVoice): number => {
+    const lang = v.lang.toLowerCase().replace('_', '-');
+    let score = 0;
+    if (lang.startsWith('zh-cn')) score += 4;
+    else if (lang.startsWith('zh-tw')) score += 2;
+    else score += 1;
+    if (v.localService) score += 1;
+    return score;
+  };
+  return zh.sort((a, b) => rank(b) - rank(a));
+}
+
+export async function findChineseVoice(): Promise<SpeechSynthesisVoice | null> {
+  const list = await listChineseVoices();
+  return list[0] ?? null;
+}
+
+/** 按文字长度估算朗读时长（毫秒），用于看门狗兜底 */
+export function estimateSpeechMs(text: string, rate: number): number {
+  const perChar = /[\u4e00-\u9fa5]/.test(text) ? 260 : 130;
+  const base = text.trim().length * perChar;
+  const value = base / (rate > 0 ? rate : 1);
+  return Math.max(600, Math.min(value, 20000));
+}
+
+/**
+ * 朗读一段文字，等到真正结束再 resolve。
+ *
+ * 为什么不用 speak()：
+ * - 听写要靠「朗读结束」这个时间点开始 10 秒书写倒计时，
+ *   所以必须处理浏览器偶尔不触发 onend 的情况（看门狗兜底），
+ *   否则倒计时会永远不开始。
+ */
+export async function speakTextToEnd(
+  text: string,
+  voice: SpeechSynthesisVoice,
+  { rate = 1 }: { rate?: number } = {},
+): Promise<void> {
+  if (!speechSupported()) throw new Error('当前浏览器不支持语音合成');
+  const content = text.trim();
+  if (!content) throw new Error('没有可朗读的内容');
+  return new Promise<void>((resolve, reject) => {
+    const utter = new SpeechSynthesisUtterance(content);
+    utter.voice = voice;
+    utter.lang = voice.lang;
+    utter.rate = rate;
+    let settled = false;
+    let started = false;
+    const finish = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdog);
+      clearInterval(resumeTick);
+      if (err) reject(err);
+      else resolve();
+    };
+    const watchdog = setTimeout(() => {
+      // 浏览器没有回调时，按估算时长收尾，避免卡死在朗读阶段
+      finish(started ? undefined : new Error('语音没有开始播放'));
+    }, estimateSpeechMs(content, rate) + 5000);
+    // Chrome 在页面不可见时偶尔会「假暂停」，短文本不需要干预；
+    // 这里只做一次温和的 resume，避免长时间静默。
+    const resumeTick = setInterval(() => {
+      if (settled) return;
+      try {
+        window.speechSynthesis.resume();
+      } catch {
+        /* 忽略 */
+      }
+    }, 5000);
+
+    utter.onstart = () => {
+      started = true;
+    };
+    utter.onend = () => finish();
+    utter.onerror = (event) => {
+      const err = (event as SpeechSynthesisErrorEvent).error;
+      if (err === 'canceled' || err === 'interrupted') finish();
+      else finish(new Error(`语音合成失败：${err || '未知错误'}`));
+    };
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utter);
+    } catch (err) {
+      finish(err instanceof Error ? err : new Error('语音合成失败'));
+    }
+  });
+}
+
 export interface SpeakOptions {
   rate?: number;
   onStart?: () => void;

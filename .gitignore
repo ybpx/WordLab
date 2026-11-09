@@ -19,12 +19,15 @@ wordlab-data.json
 wordlab-data.prev.json
 backups/
 docs/.e2e/
+docs/.e2e-v12/
 docs/.tmpdata/
 
 # ---- 测试与临时产物 ----
 docs/e2e-report.json
 docs/e2e-v11-report.json
 docs/screenshots/
+docs/V1.2-交付报告.md
+/*.png
 *.log
 *.tmp
 .tmp/
