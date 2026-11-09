@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="WordLab — 录入即学习的高中英语单词记录本" />
+    <title>WordLab · 高中英语单词本</title>
+    <script>
+      /* 主题预置：必须在样式之前执行，避免深色模式下先闪一下白屏 */
+      (function () {
+        try {
+          var key = 'wordlab.theme';
+          var mode = localStorage.getItem(key);
+          if (mode !== 'light' && mode !== 'dark' && mode !== 'system') mode = 'system';
+          var dark =
+            mode === 'system'
+              ? !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+              : mode === 'dark';
+          var resolved = dark ? 'dark' : 'light';
+          var root = document.documentElement;
+          root.setAttribute('data-theme', resolved);
+          root.setAttribute('data-theme-mode', mode);
+          root.style.colorScheme = resolved;
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      /* 首屏底色与最终主题一致，消除白/黑闪屏 */
+      html {
+        background: #f5f7fb;
+      }
+      html[data-theme='dark'] {
+        background: #0f141c;
+      }
+      html,
+      body {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

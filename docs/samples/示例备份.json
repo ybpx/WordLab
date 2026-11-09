@@ -1,0 +1,106 @@
+{
+  "format": "wordlab-backup",
+  "version": 1,
+  "exportedAt": "2026-11-05T08:37:09.379Z",
+  "counts": {
+    "words": 1,
+    "sentences": 1,
+    "links": 1,
+    "sources": 3,
+    "occurrences": 1
+  },
+  "data": {
+    "words": [
+      {
+        "id": "w-3bc94f82-edc0-4ee6-bb75-ebf3a0b20ac5",
+        "word": "approach",
+        "normalizedWord": "approach",
+        "lemma": null,
+        "ipaUK": null,
+        "ipaUS": "/əˈpɹoʊt͡ʃ/",
+        "phoneticGeneric": "/əˈprəutʃ/",
+        "senses": [
+          {
+            "id": "s1",
+            "pos": "n.",
+            "zh": "接近, 入门",
+            "origin": "local"
+          },
+          {
+            "id": "s2",
+            "pos": "vt.",
+            "zh": "接近, 近似, 找...商量",
+            "origin": "local"
+          },
+          {
+            "id": "s3",
+            "pos": "vi.",
+            "zh": "靠近",
+            "origin": "local"
+          }
+        ],
+        "createdAt": 1793867820480,
+        "updatedAt": 1793867820480
+      }
+    ],
+    "sentences": [
+      {
+        "id": "sent-1fe528e7-da96-4809-9909-f5df38f5f8f2",
+        "english": "\"Would counsel please approach the bench?\" asked the judge.",
+        "chinese": "“律师请走近法官席，好吗？”法官问道。",
+        "originType": "dict",
+        "sourceDescription": "Free Dictionary API",
+        "createdAt": 1793867820481,
+        "updatedAt": 1793867820481
+      }
+    ],
+    "links": [
+      {
+        "id": "link-7fda1c84-9aa4-41cf-b6c3-003e31bccc6c",
+        "wordId": "w-3bc94f82-edc0-4ee6-bb75-ebf3a0b20ac5",
+        "sentenceId": "sent-1fe528e7-da96-4809-9909-f5df38f5f8f2",
+        "relatedSenseId": null,
+        "isPrimary": true,
+        "createdAt": 1793867820481
+      }
+    ],
+    "sources": [
+      {
+        "id": "src-3600",
+        "name": "3600词",
+        "order": 1,
+        "isDefault": true
+      },
+      {
+        "id": "src-exam",
+        "name": "考试生词",
+        "order": 3,
+        "isDefault": true
+      },
+      {
+        "id": "src-school",
+        "name": "学校作业",
+        "order": 2,
+        "isDefault": true
+      }
+    ],
+    "occurrences": [
+      {
+        "id": "o-b2d4a5f3-e18a-4076-9374-dd4628aaa771",
+        "wordId": "w-3bc94f82-edc0-4ee6-bb75-ebf3a0b20ac5",
+        "sourceId": "src-school",
+        "originalForm": "approach",
+        "encounteredAt": 1793867820480
+      }
+    ],
+    "settings": [
+      {
+        "key": "app",
+        "preferredAccent": "uk",
+        "playbackSpeed": 1,
+        "audioEngine": "auto",
+        "lastBackupAt": null
+      }
+    ]
+  }
+}

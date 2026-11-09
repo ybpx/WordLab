@@ -1,0 +1,49 @@
+# ---- 依赖与构建产物 ----
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# 词典构建缓存（npm run build:dict 会重新下载 ECDICT 原始数据）
+._data/
+
+# ---- 平台/运行时目录（不属于项目代码）----
+.coze-drive/
+.runtime/
+.skills/
+.coze/
+
+# ---- 本机个人数据（绝对不要提交）----
+WordLab/
+wordlab-data.json
+wordlab-data.prev.json
+backups/
+docs/.e2e/
+docs/.tmpdata/
+
+# ---- 测试与临时产物 ----
+docs/e2e-report.json
+docs/e2e-v11-report.json
+docs/screenshots/
+*.log
+*.tmp
+.tmp/
+
+# ---- 密钥与凭证（绝对不要提交）----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.json
+*.credentials
+
+# ---- 任务书等非代码文档 ----
+*任务书*.txt
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store
